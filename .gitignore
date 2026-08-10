@@ -1,0 +1,60 @@
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+release/
+
+# Gradle files
+.gradle/
+build/
+
+# Kotlin
+.kotlin/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Android Studio / IntelliJ
+*.iml
+.idea/
+.caches/
+navEditor.xml
+workspace.xml
+
+# Keystore files — NEVER commit these
+*.jks
+*.keystore
+debug.keystore
+my-upload-key.jks
+
+# Secrets / environment
+.env
+.env.local
+google-services.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Native build
+.externalNativeBuild/
+.cxx/
+
+# Logs / reports
+*.log
+captures/
+
+# Roborazzi generated screenshots (kept out of VCS by default)
+app/src/test/screenshots/*.png
