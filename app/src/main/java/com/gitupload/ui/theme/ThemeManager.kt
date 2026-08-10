@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
@@ -198,7 +199,7 @@ object ThemeManager {
         contextHolder = context.applicationContext
 
         runBlocking {
-            val prefs = context.themeDataStore.data
+            val prefs = context.themeDataStore.data.first()
             val modeName = prefs[KEY_THEME_MODE]
             val paletteName = prefs[KEY_PALETTE]
 

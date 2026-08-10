@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
@@ -125,7 +126,7 @@ object AiAssistantManager {
         contextHolder = context.applicationContext
 
         runBlocking {
-            val prefs = context.aiDataStore.data
+            val prefs = context.aiDataStore.data.first()
             val providerName = prefs[KEY_PROVIDER]
             val encKey = prefs[KEY_API_KEY_ENC]
             val baseUrl = prefs[KEY_BASE_URL]
