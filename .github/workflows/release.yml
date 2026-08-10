@@ -1,0 +1,129 @@
+name: Release APK
+
+# Builds a signed release APK and (on tag push) publishes a GitHub Release
+# with the APK attached. Can also be triggered manually from the Actions tab.
+#
+# SIGNING
+# -------
+# For production releases you MUST provide a stable upload keystore as
+# repository secrets so every release is signed with the same key:
+#
+#   KEYSTORE_BASE64   base64-encoded .jks keystore
+#                     (run: `base64 -i my-upload-key.jks | tr -d '\n'`)
+#   KEY_ALIAS         key alias inside the keystore (default: upload)
+#   STORE_PASSWORD    keystore password
+#   KEY_PASSWORD      key password
+#
+# If KEYSTORE_BASE64 is NOT set, the workflow generates a fresh disposable
+# keystore on every run so the build still succeeds and produces a signed
+# APK — but that key is NOT stable, so the APK cannot be uploaded to the
+# Play Console and cannot be installed as an update over previous versions.
+# Use the disposable mode only for testing.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-release:
+    name: Build & Sign Release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write   # required by softprops/action-gh-release
+    env:
+      # Exposed at job level so the step `if` conditions can read it.
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Ensure Android SDK platform 36 & build-tools
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" > /dev/null 2>&1 || true
+
+      # ------------------------------------------------------------------
+      # Signing keystore: use the user-provided secret if present,
+      # otherwise generate a disposable one so the build always succeeds.
+      # ------------------------------------------------------------------
+      - name: Decode upload keystore from secrets
+        if: env.KEYSTORE_BASE64 != ''
+        run: |
+          echo "Decoding keystore from KEYSTORE_BASE64 secret..."
+          echo "$KEYSTORE_BASE64" | base64 --decode > my-upload-key.jks
+          echo "Keystore written:"
+          ls -la my-upload-key.jks
+
+      - name: Generate disposable keystore (no secret provided)
+        if: env.KEYSTORE_BASE64 == ''
+        run: |
+          echo "KEYSTORE_BASE64 secret not set — generating a DISPOSABLE keystore."
+          echo "WARNING: releases built this way are signed with a throwaway key"
+          echo "and cannot update previous installs. Set the secrets for production."
+          keytool -genkeypair -v \
+            -keystore my-upload-key.jks \
+            -alias upload \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=GitUpload CI, OU=Dev, O=GitUpload, L=NA, ST=NA, C=NA"
+          ls -la my-upload-key.jks
+
+      - name: Build signed release APK
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/my-upload-key.jks
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS || 'upload' }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD || 'android' }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD || 'android' }}
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: Determine version label
+        id: ver
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "label=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "label=dev-$(date -u +%Y%m%d)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rename APK
+        run: |
+          mkdir -p release-out
+          cp app/build/outputs/apk/release/*.apk "release-out/GitUpload-${{ steps.ver.outputs.label }}.apk"
+          ls -la release-out/
+
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GitUpload-release-${{ steps.ver.outputs.label }}
+          path: release-out/*.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: GitUpload ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: release-out/*.apk
+          fail_on_unmatched_files: true
