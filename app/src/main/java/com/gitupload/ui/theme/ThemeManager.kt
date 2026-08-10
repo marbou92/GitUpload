@@ -1,12 +1,18 @@
 package com.gitupload.ui.theme
 
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
+import android.content.Context
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 enum class AppThemePalette(
     val displayName: String,
@@ -155,12 +161,55 @@ enum class ThemeMode(val displayName: String) {
 val LocalAppPalette = staticCompositionLocalOf { AppThemePalette.MATERIAL_EXPRESSIVE }
 val LocalThemeMode = staticCompositionLocalOf { ThemeMode.DARK }
 
+/**
+ * Manages the user's theme mode and color palette, persisting both to
+ * DataStore so they survive process death and app restarts.
+ *
+ * Call [init] once from [android.app.Application.onCreate] with the
+ * application context. After that, [themeMode] and [currentPalette] are
+ * hot StateFlows that update both in-memory state and the persisted store.
+ */
 object ThemeManager {
+
+    private val Context.themeDataStore by preferencesDataStore("theme_settings")
+
+    private val KEY_THEME_MODE = stringPreferencesKey("theme_mode")
+    private val KEY_PALETTE = stringPreferencesKey("palette")
+
     private val _themeMode = MutableStateFlow(ThemeMode.DARK)
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
     private val _currentPalette = MutableStateFlow(AppThemePalette.MATERIAL_EXPRESSIVE)
     val currentPalette: StateFlow<AppThemePalette> = _currentPalette.asStateFlow()
+
+    @Volatile
+    private var contextHolder: Context? = null
+
+    private var initialized = false
+
+    /**
+     * Loads the persisted theme mode and palette from DataStore synchronously
+     * (via runBlocking) so the StateFlows are seeded before the first Compose
+     * frame. Safe to call from [android.app.Application.onCreate].
+     */
+    fun init(context: Context) {
+        if (initialized) return
+        initialized = true
+        contextHolder = context.applicationContext
+
+        runBlocking {
+            val prefs = context.themeDataStore.data
+            val modeName = prefs[KEY_THEME_MODE]
+            val paletteName = prefs[KEY_PALETTE]
+
+            modeName?.let { name ->
+                runCatching { ThemeMode.valueOf(name) }.getOrNull()?.let { _themeMode.value = it }
+            }
+            paletteName?.let { name ->
+                runCatching { AppThemePalette.valueOf(name) }.getOrNull()?.let { _currentPalette.value = it }
+            }
+        }
+    }
 
     fun setThemeMode(mode: ThemeMode) {
         _themeMode.value = mode
@@ -182,6 +231,7 @@ object ThemeManager {
                 // Keep selected palette
             }
         }
+        persist()
     }
 
     fun setPalette(palette: AppThemePalette) {
@@ -192,6 +242,19 @@ object ThemeManager {
             _themeMode.value = ThemeMode.LIGHT
         } else if (palette.isDark && _themeMode.value == ThemeMode.LIGHT) {
             _themeMode.value = ThemeMode.DARK
+        }
+        persist()
+    }
+
+    private val persistScope = CoroutineScope(Dispatchers.IO)
+
+    private fun persist() {
+        val ctx = contextHolder ?: return
+        persistScope.launch {
+            ctx.themeDataStore.edit { prefs ->
+                prefs[KEY_THEME_MODE] = _themeMode.value.name
+                prefs[KEY_PALETTE] = _currentPalette.value.name
+            }
         }
     }
 }

@@ -12,7 +12,7 @@ object GeminiAssistant {
         return AiAssistantManager.explainCodeOrFile(fileName, content)
     }
 
-    suspend fun askAssistant(userMessage: String, contextInfo: String = ""): String {
-        return AiAssistantManager.askAssistant(userMessage, contextInfo)
+    suspend fun askAssistant(messages: List<AiChatMessage>, contextInfo: String = ""): String {
+        return AiAssistantManager.askAssistant(messages, contextInfo)
     }
 }

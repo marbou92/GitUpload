@@ -1,18 +1,26 @@
 package com.gitupload.data.ai
 
+import android.content.Context
 import com.gitupload.BuildConfig
 import com.gitupload.data.models.StagedFile
+import com.gitupload.util.TokenCrypto
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
 import java.util.concurrent.TimeUnit
 
 enum class AiProvider(val displayName: String, val defaultModel: String, val description: String) {
@@ -53,12 +61,38 @@ data class AiProviderConfig(
     val selectedProviderId: String = "google"
 )
 
+/**
+ * A single message in an AI conversation. Used to build multi-turn chat
+ * payloads so the assistant has full context of the conversation.
+ *
+ * @param role One of "system", "user", or "assistant".
+ * @param content The message text.
+ */
+data class AiChatMessage(
+    val role: String,
+    val content: String
+)
 
 object AiAssistantManager {
 
+    private val Context.aiDataStore by preferencesDataStore("ai_settings")
+
+    private val KEY_PROVIDER = stringPreferencesKey("provider")
+    private val KEY_API_KEY_ENC = stringPreferencesKey("api_key_encrypted")
+    private val KEY_BASE_URL = stringPreferencesKey("base_url")
+    private val KEY_MODEL = stringPreferencesKey("selected_model")
+    private val KEY_PROVIDER_ID = stringPreferencesKey("selected_provider_id")
+
+    /**
+     * Maximum number of prior messages to include in a single AI request.
+     * Keeps the payload within typical context limits and avoids sending
+     * excessively long histories.
+     */
+    private const val MAX_HISTORY_MESSAGES = 20
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
         .build()
 
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
@@ -72,14 +106,81 @@ object AiAssistantManager {
     private val _dynamicProviders = MutableStateFlow<List<DynamicProviderInfo>>(emptyList())
     val dynamicProviders: StateFlow<List<DynamicProviderInfo>> = _dynamicProviders.asStateFlow()
 
+    @Volatile
+    private var contextHolder: Context? = null
+
+    private var initialized = false
+
+    private val persistScope = CoroutineScope(Dispatchers.IO)
+
+    /**
+     * Loads the persisted AI provider configuration from DataStore. The API
+     * key is stored as Keystore-encrypted ciphertext; it is decrypted here
+     * before seeding [_currentConfig]. Call once from
+     * [android.app.Application.onCreate].
+     */
+    fun init(context: Context) {
+        if (initialized) return
+        initialized = true
+        contextHolder = context.applicationContext
+
+        runBlocking {
+            val prefs = context.aiDataStore.data
+            val providerName = prefs[KEY_PROVIDER]
+            val encKey = prefs[KEY_API_KEY_ENC]
+            val baseUrl = prefs[KEY_BASE_URL]
+            val model = prefs[KEY_MODEL]
+            val providerId = prefs[KEY_PROVIDER_ID]
+
+            val provider = providerName?.let { name ->
+                runCatching { AiProvider.valueOf(name) }.getOrNull()
+            } ?: AiProvider.GEMINI
+
+            val apiKey = TokenCrypto.decrypt(encKey) ?: ""
+
+            _currentConfig.value = AiProviderConfig(
+                provider = provider,
+                apiKey = apiKey,
+                baseUrl = baseUrl ?: "https://api.openai.com/v1/chat/completions",
+                selectedModel = model ?: provider.defaultModel,
+                selectedProviderId = providerId ?: "google"
+            )
+        }
+    }
+
     fun updateConfig(config: AiProviderConfig) {
         _currentConfig.value = config
+        persist()
+    }
+
+    private fun persist() {
+        val ctx = contextHolder ?: return
+        val config = _currentConfig.value
+        persistScope.launch {
+            // Encrypt the API key with the Android Keystore before writing
+            // it to DataStore so the stored file contains only ciphertext.
+            val encKey = if (config.apiKey.isNotBlank()) {
+                TokenCrypto.encrypt(config.apiKey)
+            } else null
+
+            ctx.aiDataStore.edit { prefs ->
+                prefs[KEY_PROVIDER] = config.provider.name
+                prefs[KEY_BASE_URL] = config.baseUrl
+                prefs[KEY_MODEL] = config.selectedModel
+                prefs[KEY_PROVIDER_ID] = config.selectedProviderId
+                if (encKey != null) {
+                    prefs[KEY_API_KEY_ENC] = encKey
+                } else {
+                    prefs.remove(KEY_API_KEY_ENC)
+                }
+            }
+        }
     }
 
     private fun getActiveApiKey(): String {
         val config = _currentConfig.value
         if (config.apiKey.isNotBlank()) return config.apiKey.trim()
-        
+
         // Fallback to BuildConfig GEMINI_API_KEY for default Gemini provider
         if (config.provider == AiProvider.GEMINI) {
             return try {
@@ -109,7 +210,7 @@ object AiAssistantManager {
         val prompt = """
             You are a Git commit message generator. Generate a concise, clear Conventional Commit message for uploading these files:
             $filePaths
-            
+
             Rules:
             1. Respond ONLY with the single-line commit message (e.g. "feat(components): add Header and Footer components").
             2. Do not enclose in quotes or markdown.
@@ -117,7 +218,7 @@ object AiAssistantManager {
         """.trimIndent()
 
         try {
-            val reply = queryAiProvider(prompt)
+            val reply = queryAiProvider(listOf(AiChatMessage("user", prompt)))
             reply.lines().firstOrNull { it.isNotBlank() }?.trim('"', '`') ?: "feat: upload ${stagedFiles.size} files"
         } catch (e: Exception) {
             "feat: upload ${stagedFiles.size} files"
@@ -138,13 +239,22 @@ object AiAssistantManager {
         """.trimIndent()
 
         try {
-            queryAiProvider(prompt)
+            queryAiProvider(listOf(AiChatMessage("user", prompt)))
         } catch (e: Exception) {
             "Could not generate AI explanation: ${e.message}"
         }
     }
 
-    suspend fun askAssistant(userMessage: String, contextInfo: String = ""): String = withContext(Dispatchers.IO) {
+    /**
+     * Sends the full conversation history to the AI provider so it can follow
+     * up on prior turns. The caller is responsible for building the message
+     * list (typically: optional system context, then alternating user/assistant
+     * messages, ending with the latest user message).
+     */
+    suspend fun askAssistant(
+        messages: List<AiChatMessage>,
+        contextInfo: String = ""
+    ): String = withContext(Dispatchers.IO) {
         val config = _currentConfig.value
         val apiKey = getActiveApiKey()
 
@@ -152,15 +262,16 @@ object AiAssistantManager {
             return@withContext "API Key for ${config.provider.displayName} is not configured. Tap the AI Model Selector in the top bar to set your API Key."
         }
 
-        val prompt = """
-            You are GitUpload AI Assistant (${config.provider.displayName} - ${config.selectedModel}), an expert on Git, GitHub repos, folder uploads, and code structures.
-            Current Context: $contextInfo
-            
-            User Question: $userMessage
-        """.trimIndent()
+        // Prepend a system message describing the assistant's role and
+        // current repository context.
+        val systemMsg = AiChatMessage(
+            role = "system",
+            content = "You are GitUpload AI Assistant (${config.provider.displayName} - ${config.selectedModel}), an expert on Git, GitHub repos, folder uploads, and code structures. Current Context: $contextInfo"
+        )
+        val fullMessages = listOf(systemMsg) + messages.takeLast(MAX_HISTORY_MESSAGES)
 
         try {
-            queryAiProvider(prompt)
+            queryAiProvider(fullMessages)
         } catch (e: Exception) {
             "Error from ${config.provider.displayName}: ${e.message}"
         }
@@ -168,7 +279,7 @@ object AiAssistantManager {
 
     suspend fun fetchPiModelsCatalog(): Result<List<PiModelInfo>> = withContext(Dispatchers.IO) {
         val endpoint = "https://pi.dev/models"
-        
+
         try {
             val request = Request.Builder()
                 .url(endpoint)
@@ -181,21 +292,21 @@ object AiAssistantManager {
                     val parsedList = mutableListOf<PiModelInfo>()
                     val rowRegex = """<tr[^>]*data-model-row="true"[^>]*>""".toRegex()
                     val rows = rowRegex.findAll(body)
-                    
+
                     for (rowMatch in rows) {
                         val rowHtml = rowMatch.value
                         val mIdMatch = """data-model-id="([^"]+)"""".toRegex().find(rowHtml)
                         val mNameMatch = """data-model-name="([^"]+)"""".toRegex().find(rowHtml)
                         val mProvMatch = """data-model-provider="([^"]+)"""".toRegex().find(rowHtml)
-                        
+
                         if (mIdMatch != null) {
                             val modelId = mIdMatch.groupValues[1]
                             val rawName = mNameMatch?.groupValues[1] ?: modelId.substringAfter('/')
                             val rawProvider = mProvMatch?.groupValues[1] ?: modelId.substringBefore('/', "pi_dev")
-                            
+
                             val cleanName = rawName.split(' ')
                                 .joinToString(" ") { word -> word.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() } }
-                            
+
                             parsedList.add(
                                 PiModelInfo(
                                     id = modelId,
@@ -273,7 +384,7 @@ object AiAssistantManager {
 
         // 2. Primary Featured AI Engines
         val primaryOrder = listOf("anthropic", "google", "openai", "deepseek", "mistral", "amazon-bedrock", "groq", "meta", "xai", "cloudflare-workers-ai", "huggingface", "fireworks", "together", "cohere", "nvidia")
-        
+
         primaryOrder.forEach { pId ->
             val count = providerGroups[pId]?.size ?: 0
             if (count > 0 || pId in listOf("google", "openai", "anthropic", "deepseek")) {
@@ -396,8 +507,7 @@ object AiAssistantManager {
         val prevConfig = _currentConfig.value
         try {
             _currentConfig.value = config
-            val response = queryAiProvider("Hello! Reply with 'OK' if working.")
-            _currentConfig.value = config
+            val response = queryAiProvider(listOf(AiChatMessage("user", "Hello! Reply with 'OK' if working.")))
             Result.success("Connected successfully to ${config.provider.displayName} (${config.selectedModel})! Response: $response")
         } catch (e: Exception) {
             _currentConfig.value = prevConfig
@@ -405,41 +515,102 @@ object AiAssistantManager {
         }
     }
 
-    private fun queryAiProvider(prompt: String): String {
+    private fun queryAiProvider(messages: List<AiChatMessage>): String {
         val config = _currentConfig.value
         val apiKey = getActiveApiKey()
 
         return when (config.provider) {
             AiProvider.MODELS_DEV -> {
                 val url = if (config.baseUrl.isBlank() || config.baseUrl.contains("openai.com")) "https://api.models.dev/v1/chat/completions" else config.baseUrl
-                callOpenAiCompatibleApi(apiKey, url, config.selectedModel, prompt)
+                callOpenAiCompatibleApi(apiKey, url, config.selectedModel, messages)
             }
-            AiProvider.GEMINI -> callGeminiApi(apiKey, config.selectedModel, prompt)
-            AiProvider.GEMINI_OAUTH -> callGeminiOAuthApi(apiKey, config.selectedModel, prompt)
-            AiProvider.OPENROUTER -> callOpenRouterApi(apiKey, config.selectedModel, prompt)
+            AiProvider.GEMINI -> callGeminiApi(apiKey, config.selectedModel, messages)
+            AiProvider.GEMINI_OAUTH -> callGeminiOAuthApi(apiKey, config.selectedModel, messages)
+            AiProvider.OPENROUTER -> callOpenRouterApi(apiKey, config.selectedModel, messages)
             AiProvider.OPENCODE -> {
                 val url = if (config.baseUrl.isBlank()) "http://localhost:4096/v1/chat/completions" else config.baseUrl
-                callOpenAiCompatibleApi(apiKey, url, config.selectedModel, prompt)
+                callOpenAiCompatibleApi(apiKey, url, config.selectedModel, messages)
             }
             AiProvider.CUSTOM_OPENAI -> {
                 val url = if (config.baseUrl.isBlank()) "https://api.openai.com/v1/chat/completions" else config.baseUrl
-                callOpenAiCompatibleApi(apiKey, url, config.selectedModel, prompt)
+                callOpenAiCompatibleApi(apiKey, url, config.selectedModel, messages)
             }
         }
     }
 
+    // ────────────────────────────────────────────────────────────────────────
+    // Payload builders
+    // ────────────────────────────────────────────────────────────────────────
 
-    private fun callGeminiApi(apiKey: String, model: String, prompt: String): String {
+    /**
+     * Builds the Gemini "contents" JSON array from the message list.
+     * Gemini uses "user"/"model" roles (not "assistant"). System messages
+     * are extracted into the top-level `systemInstruction` field.
+     */
+    private fun buildGeminiContents(messages: List<AiChatMessage>): String {
+        val systemParts = StringBuilder()
+        val contents = StringBuilder()
+        contents.append("[")
+
+        var first = true
+        for (msg in messages) {
+            when (msg.role) {
+                "system" -> {
+                    if (systemParts.isNotEmpty()) systemParts.append("\\n")
+                    systemParts.append(escapeJson(msg.content))
+                }
+                "assistant" -> {
+                    if (!first) contents.append(",")
+                    contents.append("""{"role":"model","parts":[{"text":${escapeJson(msg.content)}}]}""")
+                    first = false
+                }
+                else -> {
+                    if (!first) contents.append(",")
+                    contents.append("""{"role":"user","parts":[{"text":${escapeJson(msg.content)}}]}""")
+                    first = false
+                }
+            }
+        }
+        contents.append("]")
+        return contents.toString()
+    }
+
+    private fun buildGeminiSystemInstruction(messages: List<AiChatMessage>): String? {
+        val systemMessages = messages.filter { it.role == "system" }
+        if (systemMessages.isEmpty()) return null
+        val combined = systemMessages.joinToString("\\n") { escapeJson(it.content) }
+        return """{"parts":[{"text":$combined}]}"""
+    }
+
+    /**
+     * Builds the OpenAI-compatible "messages" JSON array. Roles are used
+     * as-is: system, user, assistant.
+     */
+    private fun buildOpenAiMessages(messages: List<AiChatMessage>): String {
+        val sb = StringBuilder()
+        sb.append("[")
+        messages.forEachIndexed { index, msg ->
+            if (index > 0) sb.append(",")
+            sb.append("""{"role":${escapeJson(msg.role)},"content":${escapeJson(msg.content)}}""")
+        }
+        sb.append("]")
+        return sb.toString()
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    // Provider call methods
+    // ────────────────────────────────────────────────────────────────────────
+
+    private fun callGeminiApi(apiKey: String, model: String, messages: List<AiChatMessage>): String {
         val cleanModel = model.removePrefix("google/")
         // Pass the API key via the x-goog-api-key header rather than as a
         // URL query parameter so it never leaks into logs, proxies or
         // crash-report URL captures.
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:generateContent"
-        val payload = """
-            {
-              "contents": [{"parts": [{"text": ${escapeJson(prompt)}}]}]
-            }
-        """.trimIndent()
+        val contentsJson = buildGeminiContents(messages)
+        val systemJson = buildGeminiSystemInstruction(messages)
+        val systemField = if (systemJson != null) """"systemInstruction":$systemJson,""" else ""
+        val payload = """{$systemField"contents":$contentsJson}"""
 
         val request = Request.Builder()
             .url(url)
@@ -454,14 +625,13 @@ object AiAssistantManager {
         }
     }
 
-    private fun callGeminiOAuthApi(oauthToken: String, model: String, prompt: String): String {
+    private fun callGeminiOAuthApi(oauthToken: String, model: String, messages: List<AiChatMessage>): String {
         val cleanModel = model.removePrefix("google/")
         val url = "https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:generateContent"
-        val payload = """
-            {
-              "contents": [{"parts": [{"text": ${escapeJson(prompt)}}]}]
-            }
-        """.trimIndent()
+        val contentsJson = buildGeminiContents(messages)
+        val systemJson = buildGeminiSystemInstruction(messages)
+        val systemField = if (systemJson != null) """"systemInstruction":$systemJson,""" else ""
+        val payload = """{$systemField"contents":$contentsJson}"""
 
         val tokenHeader = if (oauthToken.startsWith("Bearer ", ignoreCase = true)) oauthToken else "Bearer $oauthToken"
 
@@ -478,17 +648,10 @@ object AiAssistantManager {
         }
     }
 
-    private fun callOpenRouterApi(apiKey: String, model: String, prompt: String): String {
+    private fun callOpenRouterApi(apiKey: String, model: String, messages: List<AiChatMessage>): String {
         val url = "https://openrouter.ai/api/v1/chat/completions"
-        val payload = """
-            {
-              "model": ${escapeJson(model)},
-              "messages": [
-                {"role": "system", "content": "You are a Git and software engineering assistant."},
-                {"role": "user", "content": ${escapeJson(prompt)}}
-              ]
-            }
-        """.trimIndent()
+        val messagesJson = buildOpenAiMessages(messages)
+        val payload = """{"model":${escapeJson(model)},"messages":$messagesJson}"""
 
         val authHeader = if (apiKey.startsWith("Bearer ", ignoreCase = true)) apiKey else "Bearer $apiKey"
 
@@ -507,17 +670,10 @@ object AiAssistantManager {
         }
     }
 
-    private fun callOpenAiCompatibleApi(apiKey: String, baseUrl: String, model: String, prompt: String): String {
+    private fun callOpenAiCompatibleApi(apiKey: String, baseUrl: String, model: String, messages: List<AiChatMessage>): String {
         val endpoint = if (baseUrl.isBlank()) "https://api.openai.com/v1/chat/completions" else baseUrl
-        val payload = """
-            {
-              "model": ${escapeJson(model)},
-              "messages": [
-                {"role": "system", "content": "You are an expert Git & Kotlin Android assistant."},
-                {"role": "user", "content": ${escapeJson(prompt)}}
-              ]
-            }
-        """.trimIndent()
+        val messagesJson = buildOpenAiMessages(messages)
+        val payload = """{"model":${escapeJson(model)},"messages":$messagesJson}"""
 
         val authHeader = if (apiKey.startsWith("Bearer ", ignoreCase = true)) apiKey else "Bearer $apiKey"
 

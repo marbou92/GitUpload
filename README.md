@@ -71,7 +71,7 @@ viewer, a multi-provider AI assistant, and a complete upload history log.
 |-------|-----------|
 | UI | Kotlin · Jetpack Compose · Material 3 Expressive · Navigation Compose |
 | Async | Kotlin Coroutines + Flow · Lifecycle ViewModel |
-| Persistence | Room (accounts, upload logs, bookmarks, cached file trees) · DataStore |
+| Persistence | Room (accounts, upload logs, bookmarks, cached file trees) · DataStore (theme, AI config) |
 | Networking | Retrofit · OkHttp · Moshi |
 | AI | OkHttp + multi-provider adapters (Gemini / OpenRouter / OpenAI-compatible) |
 | DI | Manual (lightweight, no framework) |
@@ -252,9 +252,13 @@ git push origin v1.0.0
   key held in the Android Keystore, then persisted in the local Room
   database. The Keystore key never leaves the device, so stored tokens
   cannot be decrypted on another device. The token database is also
-  excluded from Auto Backup / device transfer. AI provider keys live in
-  memory only. Secrets are never transmitted anywhere except directly to
-  GitHub / your chosen AI provider.
+  excluded from Auto Backup / device transfer.
+- AI provider API keys are likewise encrypted with the Android Keystore
+  before being persisted to DataStore, so they survive app restarts
+  without ever being stored in plaintext. Theme and AI model preferences
+  are also persisted via DataStore.
+- Secrets are never transmitted anywhere except directly to GitHub / your
+  chosen AI provider.
 - No telemetry, no analytics, no third-party trackers.
 - `.env`, keystores and `google-services.json` are gitignored.
 

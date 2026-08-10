@@ -54,12 +54,9 @@ enum class SubSettingsPage(
 ) {
     ACCOUNT("Account", "GitHub OAuth & Personal Access Tokens", Icons.Default.Person),
     AI_HUB("AI Hub", "Multi-provider AI Model & API Key setup", Icons.Default.AutoAwesome),
-    REPOS_GIT("Git Defaults & Repositories", "Branch defaults, webhook sync & commit settings", Icons.Default.AccountTree),
     APPEARANCE("Appearance", "Theme Mode & Accent Color Palettes", Icons.Default.Palette),
     PRIVACY("Privacy & Security", "Token encryption, security & credentials", Icons.Default.Security),
-    STORAGE("Storage & Cache", "Offline file tree cache & database stats", Icons.Default.Storage),
-    BACKUP("Backup and restore", "Export or restore configuration settings", Icons.Default.CloudUpload),
-    SYSTEM_UPDATE("System update", "GitUpload v2.5.0 • Up to date", Icons.Default.SystemUpdate)
+    STORAGE("Storage & Cache", "Offline file tree cache & database stats", Icons.Default.Storage)
 }
 
 
@@ -359,14 +356,6 @@ fun AccountSettingsScreen(
                                 )
                             }
                         }
-
-                        SubSettingsPage.REPOS_GIT, SubSettingsPage.BACKUP, SubSettingsPage.SYSTEM_UPDATE -> {
-                            item {
-                                SubSettingsGenericInfoContent(page = subPage)
-                            }
-                        }
-
-
                     }
                 }
             }
@@ -972,25 +961,6 @@ fun SubSettingsStorageContent(
                     Text("Clear Offline File-Tree Cache")
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun SubSettingsGenericInfoContent(page: SubSettingsPage) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = GitCardBg),
-        shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(imageVector = page.icon, contentDescription = null, tint = GitAccentCyan, modifier = Modifier.size(24.dp))
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(page.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = GitTextPrimary)
-            }
-            Text(page.subtitle, style = MaterialTheme.typography.bodyMedium, color = GitTextSecondary)
-            Text("This sub-setting feature is active and managed automatically by GitUpload System Settings.", style = MaterialTheme.typography.bodySmall, color = GitTextSecondary)
         }
     }
 }

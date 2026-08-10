@@ -288,7 +288,17 @@ fun AiChatScreen(
 
                             scope.launch {
                                 val repoContext = targetRepo?.fullName ?: "None"
-                                val reply = AiAssistantManager.askAssistant(prompt, contextInfo = "Target Repository: $repoContext")
+                                // Build conversation history from the visible
+                                // chat thread so the assistant has full
+                                // multi-turn context. The latest user message
+                                // is already in [messages] at this point.
+                                val history = messages.map { msg ->
+                                    com.gitupload.data.ai.AiChatMessage(
+                                        role = if (msg.isUser) "user" else "assistant",
+                                        content = msg.text
+                                    )
+                                }
+                                val reply = AiAssistantManager.askAssistant(history, contextInfo = "Target Repository: $repoContext")
                                 messages = messages + ChatMessage(text = reply, isUser = false, providerName = activeModel)
                                 isSending = false
                             }
