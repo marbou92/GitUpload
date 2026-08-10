@@ -32,6 +32,7 @@ import com.gitupload.data.models.GitHubRepository
 import com.gitupload.ui.MainViewModel
 import com.gitupload.ui.components.FileContentViewerDialog
 import com.gitupload.ui.theme.*
+import com.gitupload.util.formatFileSize
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -365,7 +366,7 @@ fun RepositoryCard(
                 }
             }
 
-            if (!repo.description.isNull_or_blank()) {
+            if (!repo.description.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = repo.description ?: "",
@@ -775,7 +776,7 @@ fun ContentItemRow(
 
             if (item.type != "dir") {
                 Text(
-                    text = "${item.size} B",
+                    text = item.size.formatFileSize(),
                     style = MaterialTheme.typography.labelSmall,
                     color = GitTextSecondary
                 )
@@ -791,7 +792,6 @@ fun ContentItemRow(
     }
 }
 
-@Composable
 private fun getLanguageColor(lang: String): Color {
     return when (lang.lowercase()) {
         "kotlin" -> Color(0xFFA97BFF)
@@ -807,4 +807,3 @@ private fun getLanguageColor(lang: String): Color {
     }
 }
 
-private fun String?.isNull_or_blank(): Boolean = this == null || this.trim().isEmpty()

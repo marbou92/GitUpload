@@ -103,7 +103,7 @@ fun TopBarHeader(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (!avatarUrl.isNull_or_empty()) {
+                    if (!avatarUrl.isNullOrEmpty()) {
                         AsyncImage(
                             model = avatarUrl,
                             contentDescription = "User Avatar",
@@ -134,7 +134,6 @@ fun TopBarHeader(
     }
 }
 
-private fun String?.isNull_or_empty(): Boolean = this == null || this.trim().isEmpty()
 
 @Composable
 fun StagedFileCard(
@@ -421,7 +420,7 @@ fun FileContentViewerDialog(
                     Row {
                         IconButton(
                             onClick = {
-                                if (!content.isNull_or_empty()) {
+                                if (!content.isNullOrEmpty()) {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     clipboard.setPrimaryClip(ClipData.newPlainText("Code", content))
                                     Toast.makeText(context, "Code copied to clipboard!", Toast.LENGTH_SHORT).show()
@@ -662,7 +661,7 @@ fun UploadProgressOverlay(
                                 color = GitAccentCyan
                             )
 
-                            if (!progress.commitHtmlUrl.isNull_or_empty()) {
+                            if (!progress.commitHtmlUrl.isNullOrEmpty()) {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 OutlinedButton(
                                     onClick = {

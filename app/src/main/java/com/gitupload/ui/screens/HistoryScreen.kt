@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.gitupload.data.db.UploadLogEntity
 import com.gitupload.ui.MainViewModel
 import com.gitupload.ui.theme.*
+import com.gitupload.util.formatFileSize
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -140,11 +141,7 @@ fun UploadLogCard(log: UploadLogEntity, onDelete: () -> Unit = {}) {
         sdf.format(Date(log.timestamp))
     }
 
-    val formattedSize = remember(log.totalSizeBytes) {
-        if (log.totalSizeBytes < 1024) "${log.totalSizeBytes} B"
-        else if (log.totalSizeBytes < 1024 * 1024) "%.1f KB".format(log.totalSizeBytes / 1024.0)
-        else "%.2f MB".format(log.totalSizeBytes / (1024.0 * 1024.0))
-    }
+    val formattedSize = remember(log.totalSizeBytes) { log.totalSizeBytes.formatFileSize() }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = GitCardBg),
@@ -217,7 +214,7 @@ fun UploadLogCard(log: UploadLogEntity, onDelete: () -> Unit = {}) {
                     color = GitTextSecondary
                 )
 
-                if (!log.commitHtmlUrl.isNull_or_empty()) {
+                if (!log.commitHtmlUrl.isNullOrEmpty()) {
                     IconButton(
                         onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -248,4 +245,3 @@ fun UploadLogCard(log: UploadLogEntity, onDelete: () -> Unit = {}) {
     }
 }
 
-private fun String?.isNull_or_empty(): Boolean = this == null || this.trim().isEmpty()

@@ -31,6 +31,7 @@ import com.gitupload.ui.components.CreateTextFileDialog
 import com.gitupload.ui.components.StagedFileCard
 import com.gitupload.ui.components.UploadProgressOverlay
 import com.gitupload.ui.theme.*
+import com.gitupload.util.formatFileSize
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,11 +75,7 @@ fun UploadScreen(
 
     val selectedCount = remember(stagedFiles) { stagedFiles.count { it.selected } }
     val totalSizeBytes = remember(stagedFiles) { stagedFiles.filter { it.selected }.sumOf { it.sizeBytes } }
-    val formattedTotalSize = remember(totalSizeBytes) {
-        if (totalSizeBytes < 1024) "$totalSizeBytes B"
-        else if (totalSizeBytes < 1024 * 1024) "%.1f KB".format(totalSizeBytes / 1024.0)
-        else "%.2f MB".format(totalSizeBytes / (1024.0 * 1024.0))
-    }
+    val formattedTotalSize = remember(totalSizeBytes) { totalSizeBytes.formatFileSize() }
 
     Column(
         modifier = modifier

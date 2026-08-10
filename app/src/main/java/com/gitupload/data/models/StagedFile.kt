@@ -1,6 +1,7 @@
 package com.gitupload.data.models
 
 import android.net.Uri
+import com.gitupload.util.formatFileSize
 
 data class StagedFile(
     val id: String,
@@ -15,11 +16,7 @@ data class StagedFile(
     val selected: Boolean = true
 ) {
     val formattedSize: String
-        get() {
-            if (sizeBytes < 1024) return "$sizeBytes B"
-            if (sizeBytes < 1024 * 1024) return "%.1f KB".format(sizeBytes / 1024.0)
-            return "%.2f MB".format(sizeBytes / (1024.0 * 1024.0))
-        }
+        get() = sizeBytes.formatFileSize()
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

@@ -182,14 +182,12 @@ object AiAssistantManager {
         val config = _currentConfig.value
         if (config.apiKey.isNotBlank()) return config.apiKey.trim()
 
-        // Fallback to BuildConfig GEMINI_API_KEY for default Gemini provider
+        // Fallback to BuildConfig GEMINI_API_KEY for the default Gemini
+        // provider. The Secrets Gradle Plugin always generates this field
+        // (from .env or .env.example), so no try/catch is needed.
         if (config.provider == AiProvider.GEMINI) {
-            return try {
-                val key = BuildConfig.GEMINI_API_KEY
-                if (key.isNullOrBlank() || key == "MY_GEMINI_API_KEY") "" else key
-            } catch (e: Throwable) {
-                ""
-            }
+            val key = BuildConfig.GEMINI_API_KEY
+            return if (key.isBlank() || key == "MY_GEMINI_API_KEY") "" else key
         }
         return ""
     }
@@ -505,14 +503,19 @@ object AiAssistantManager {
     }
 
     suspend fun testConnection(config: AiProviderConfig): Result<String> = withContext(Dispatchers.IO) {
+        // Temporarily swap the active config so queryAiProvider uses the test
+        // credentials, but ALWAYS restore the previous config afterwards —
+        // even on success — so a "test connection" never silently replaces
+        // the user's active provider/key.
         val prevConfig = _currentConfig.value
+        _currentConfig.value = config
         try {
-            _currentConfig.value = config
             val response = queryAiProvider(listOf(AiChatMessage("user", "Hello! Reply with 'OK' if working.")))
             Result.success("Connected successfully to ${config.provider.displayName} (${config.selectedModel})! Response: $response")
         } catch (e: Exception) {
-            _currentConfig.value = prevConfig
             Result.failure(e)
+        } finally {
+            _currentConfig.value = prevConfig
         }
     }
 

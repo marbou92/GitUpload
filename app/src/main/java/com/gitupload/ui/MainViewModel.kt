@@ -4,7 +4,7 @@ import android.app.Application
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.gitupload.data.ai.GeminiAssistant
+import com.gitupload.data.ai.AiAssistantManager
 import com.gitupload.data.db.AccountEntity
 import com.gitupload.data.db.GitUploadDatabase
 import com.gitupload.data.db.UploadLogEntity
@@ -390,7 +390,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun generateAiCommitMessage() {
         viewModelScope.launch {
             _isGeneratingCommitMsg.value = true
-            val msg = GeminiAssistant.generateCommitMessage(_stagedFiles.value)
+            val msg = AiAssistantManager.generateCommitMessage(_stagedFiles.value)
             _commitMessage.value = msg
             _isGeneratingCommitMsg.value = false
         }
@@ -552,7 +552,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val content = _decodedFileContent.value ?: return
 
         viewModelScope.launch {
-            val summary = GeminiAssistant.explainCodeOrFile(item.name, content)
+            val summary = AiAssistantManager.explainCodeOrFile(item.name, content)
             _aiFileSummary.value = summary
         }
     }

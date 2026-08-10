@@ -198,7 +198,7 @@ fun AccountSettingsScreen(
                     }
 
                     // Setting Category Cards (Single card container with items matching Image 1)
-                    val filteredPages = SubSettingsPage.values().filter { page ->
+                    val filteredPages = SubSettingsPage.entries.filter { page ->
                         searchQuery.isEmpty() ||
                                 page.title.contains(searchQuery, ignoreCase = true) ||
                                 page.subtitle.contains(searchQuery, ignoreCase = true)
@@ -773,7 +773,7 @@ fun SubSettingsAppearanceContent(
         )
 
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            AppThemePalette.values().forEach { palette ->
+            AppThemePalette.entries.forEach { palette ->
                 val isSelected = currentPalette == palette
                 Surface(
                     onClick = { onSelectPalette(palette) },
