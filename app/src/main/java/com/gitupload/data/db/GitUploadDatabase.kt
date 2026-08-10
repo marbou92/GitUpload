@@ -31,6 +31,9 @@ interface AccountDao {
 
     @Query("DELETE FROM github_accounts WHERE token = :token")
     suspend fun deleteAccount(token: String)
+
+    @Query("DELETE FROM github_accounts")
+    suspend fun deleteAllAccounts()
 }
 
 @Dao

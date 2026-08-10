@@ -11,6 +11,14 @@ import java.util.UUID
 
 object FolderScanner {
 
+    /**
+     * Maximum size of a single staged file. Files larger than this are skipped
+     * during scanning to avoid OOM on memory-constrained devices (the scanner
+     * reads each file fully into RAM) and to fail early rather than late at
+     * the GitHub blob endpoint (which rejects blobs > 100 MB anyway).
+     */
+    private const val MAX_FILE_SIZE_BYTES = 50L * 1024 * 1024 // 50 MB
+
     suspend fun scanFolderUri(
         context: Context,
         treeUri: Uri,
@@ -58,6 +66,13 @@ object FolderScanner {
             if (file.isDirectory) {
                 traverseDirectory(context, file, relativePath, stagedFiles, countRef, onProgress)
             } else if (file.isFile) {
+                // Skip oversized files before allocating any memory for them.
+                // Length() is a metadata query, no I/O.
+                if (file.length() > MAX_FILE_SIZE_BYTES) {
+                    countRef[0]++
+                    onProgress(countRef[0], fileName)
+                    continue
+                }
                 countRef[0]++
                 onProgress(countRef[0], fileName)
 
@@ -77,6 +92,9 @@ object FolderScanner {
         for (uri in uris) {
             val doc = DocumentFile.fromSingleUri(context, uri)
             val name = doc?.name ?: getUriFileName(context, uri) ?: "file_${System.currentTimeMillis()}"
+            // Same per-file size guard as the folder scanner: bail before
+            // allocating a huge byte array for an oversized selection.
+            if ((doc?.length() ?: 0L) > MAX_FILE_SIZE_BYTES) continue
             val file = readSingleFile(context, uri, name, name)
             if (file != null) {
                 staged.add(file)
@@ -95,7 +113,10 @@ object FolderScanner {
             val contentResolver = context.contentResolver
             val mimeType = contentResolver.getType(uri) ?: getMimeTypeFromExtension(fileName)
             val inputStream: InputStream? = contentResolver.openInputStream(uri)
+            // Defensive: even though callers pre-filter by size, re-check the
+            // actual byte count after reading in case the SAF underreported.
             val bytes = inputStream?.use { it.readBytes() } ?: return null
+            if (bytes.size.toLong() > MAX_FILE_SIZE_BYTES) return null
 
             val isText = isTextFile(fileName, mimeType)
             val preview = if (isText) {

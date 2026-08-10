@@ -337,9 +337,9 @@ fun AccountSettingsScreen(
                         SubSettingsPage.PRIVACY -> {
                             item {
                                 SubSettingsPrivacyContent(
-                                    onWipeTokens = {
-                                        viewModel.setPatInput("")
-                                        Toast.makeText(context, "Cleared temporary credential buffers!", Toast.LENGTH_SHORT).show()
+                                    onSignOutAll = {
+                                        viewModel.signOutAllAccounts()
+                                        Toast.makeText(context, "Signed out of all accounts. Stored tokens wiped.", Toast.LENGTH_LONG).show()
                                     }
                                 )
                             }
@@ -351,6 +351,10 @@ fun AccountSettingsScreen(
                                     onClearStaged = {
                                         viewModel.clearStagedFiles()
                                         Toast.makeText(context, "Cleared staged files cache!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    onClearFileTreeCache = {
+                                        viewModel.clearFileTreeCache()
+                                        Toast.makeText(context, "Cleared offline file-tree cache!", Toast.LENGTH_SHORT).show()
                                     }
                                 )
                             }
@@ -829,7 +833,9 @@ fun SubSettingsAppearanceContent(
 }
 
 @Composable
-fun SubSettingsPrivacyContent(onWipeTokens: () -> Unit) {
+fun SubSettingsPrivacyContent(onSignOutAll: () -> Unit) {
+    var showConfirmSignOut by remember { mutableStateOf(false) }
+
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Card(
             colors = CardDefaults.cardColors(containerColor = GitCardBg),
@@ -861,21 +867,64 @@ fun SubSettingsPrivacyContent(onWipeTokens: () -> Unit) {
             }
         }
 
-        Button(
-            onClick = onWipeTokens,
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-            shape = RoundedCornerShape(10.dp),
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GitCardBg),
+            shape = RoundedCornerShape(14.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Icon(imageVector = Icons.Default.CleaningServices, contentDescription = null, modifier = Modifier.size(18.dp))
-            Spacer(modifier = Modifier.width(8.dp))
-            Text("Clear Memory Credential Buffers")
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.Logout, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Sign Out Everywhere", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = GitTextPrimary)
+                }
+                Text("Removes every stored GitHub account from this device, wiping their encrypted Personal Access Tokens. You will need to re-enter a PAT to commit or browse private repositories again.", style = MaterialTheme.typography.bodySmall, color = GitTextSecondary)
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Button(
+                    onClick = { showConfirmSignOut = true },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(imageVector = Icons.Default.CleaningServices, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Sign Out of All Accounts")
+                }
+            }
         }
+    }
+
+    if (showConfirmSignOut) {
+        AlertDialog(
+            onDismissRequest = { showConfirmSignOut = false },
+            containerColor = GitCardBg,
+            title = { Text("Sign out of all accounts?", color = GitTextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("This will permanently remove every stored GitHub account and its encrypted token from this device. This cannot be undone.", color = GitTextSecondary) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirmSignOut = false
+                        onSignOutAll()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Sign Out & Wipe") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmSignOut = false }) {
+                    Text("Cancel", color = GitTextSecondary)
+                }
+            }
+        )
     }
 }
 
 @Composable
-fun SubSettingsStorageContent(onClearStaged: () -> Unit) {
+fun SubSettingsStorageContent(
+    onClearStaged: () -> Unit,
+    onClearFileTreeCache: () -> Unit
+) {
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Card(
             colors = CardDefaults.cardColors(containerColor = GitCardBg),
@@ -895,6 +944,32 @@ fun SubSettingsStorageContent(onClearStaged: () -> Unit) {
                     Icon(imageVector = Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Clear Staged Files Cache")
+                }
+            }
+        }
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = GitCardBg),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(imageVector = Icons.Default.Storage, contentDescription = null, tint = GitAccentCyan, modifier = Modifier.size(20.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text("Offline File-Tree Cache", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = GitTextPrimary)
+                }
+                Text("Explored repository file trees are cached in the local Room database so you can keep browsing when the network drops. Clearing this forces fresh fetches on next visit.", style = MaterialTheme.typography.bodySmall, color = GitTextSecondary)
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                OutlinedButton(
+                    onClick = onClearFileTreeCache,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(imageVector = Icons.Default.CloudOff, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Clear Offline File-Tree Cache")
                 }
             }
         }

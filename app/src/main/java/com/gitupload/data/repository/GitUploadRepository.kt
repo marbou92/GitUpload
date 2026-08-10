@@ -96,6 +96,26 @@ class GitUploadRepository(
         accountDao.deleteAccount(token)
     }
 
+    /** Wipes every stored GitHub account (encrypted tokens included). */
+    suspend fun deleteAllAccounts() = withContext(Dispatchers.IO) {
+        accountDao.deleteAllAccounts()
+    }
+
+    /** Deletes a single upload-history row. */
+    suspend fun deleteUploadLog(id: Long) = withContext(Dispatchers.IO) {
+        uploadLogDao.deleteLogById(id)
+    }
+
+    /** Wipes the entire upload-history log. */
+    suspend fun clearAllUploadLogs() = withContext(Dispatchers.IO) {
+        uploadLogDao.clearAllLogs()
+    }
+
+    /** Wipes the offline file-tree cache for all repos. */
+    suspend fun clearFileTreeCache() = withContext(Dispatchers.IO) {
+        cachedFileTreeDao.clearAllCache()
+    }
+
     suspend fun fetchUserRepos(): Result<List<GitHubRepository>> = withContext(Dispatchers.IO) {
         try {
             val activeAccount = accountDao.getSelectedAccount()
@@ -233,7 +253,9 @@ class GitUploadRepository(
         try {
             val account = accountDao.getSelectedAccount()
             val bearer = activeBearerToken(account)
-            if (owner == "demo-developer" || bearer == null && (owner.contains("demo") || repo.contains("starter") || repo.contains("portfolio"))) {
+            // Genuine demo-mode fallback: only when there is no signed-in
+            // account AND the requested owner/repo looks like a demo entry.
+            if (owner == "demo-developer" || (bearer == null && (owner.contains("demo") || repo.contains("starter") || repo.contains("portfolio")))) {
                 return@withContext Result.success(getFallbackFileContent(path))
             }
             val response = apiService.getRepoContents(owner, repo, path, ref, bearer)
@@ -243,13 +265,19 @@ class GitUploadRepository(
                 if (parsedItems.isNotEmpty()) {
                     Result.success(parsedItems.first())
                 } else {
-                    Result.success(getFallbackFileContent(path))
+                    // Real repo, real account, but GitHub returned an empty
+                    // body for this path. Surface the failure honestly
+                    // instead of pretending with a fake demo snippet.
+                    Result.failure(Exception("File '$path' is empty or could not be parsed."))
                 }
             } else {
-                Result.success(getFallbackFileContent(path))
+                // Non-2xx response (404 path not found, 403 rate limit, etc.).
+                // Tell the caller so the UI can show a real error rather than
+                // a misleading fake source preview.
+                Result.failure(Exception("Failed to load file (HTTP ${response.code()}: ${response.message()})."))
             }
         } catch (e: Exception) {
-            Result.success(getFallbackFileContent(path))
+            Result.failure(e)
         }
     }
 

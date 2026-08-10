@@ -142,7 +142,14 @@ data class UpdateRefRequest(
 @JsonClass(generateAdapter = true)
 data class UpdateRefResponse(
     val ref: String,
-    val objectSha: String? = null
+    @Json(name = "object") val gitObject: UpdateRefObject? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class UpdateRefObject(
+    val sha: String? = null,
+    val type: String? = null,
+    val url: String? = null
 )
 
 @JsonClass(generateAdapter = true)

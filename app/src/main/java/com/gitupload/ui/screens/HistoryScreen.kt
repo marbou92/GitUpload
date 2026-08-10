@@ -33,6 +33,7 @@ fun HistoryScreen(
     modifier: Modifier = Modifier
 ) {
     val uploadLogs by viewModel.uploadLogs.collectAsState()
+    var showClearAllConfirm by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -51,11 +52,27 @@ fun HistoryScreen(
                 color = GitTextPrimary
             )
 
-            Text(
-                text = "${uploadLogs.size} logs",
-                style = MaterialTheme.typography.labelSmall,
-                color = GitTextSecondary
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "${uploadLogs.size} logs",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = GitTextSecondary
+                )
+                if (uploadLogs.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(
+                        onClick = { showClearAllConfirm = true },
+                        modifier = Modifier.testTag("clear_all_history_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "Clear All History",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -81,15 +98,41 @@ fun HistoryScreen(
                 modifier = Modifier.weight(1f)
             ) {
                 items(uploadLogs, key = { it.id }) { log ->
-                    UploadLogCard(log = log)
+                    UploadLogCard(
+                        log = log,
+                        onDelete = { viewModel.deleteUploadLog(log.id) }
+                    )
                 }
             }
         }
     }
+
+    if (showClearAllConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearAllConfirm = false },
+            containerColor = GitCardBg,
+            title = { Text("Clear all history?", color = GitTextPrimary, fontWeight = FontWeight.Bold) },
+            text = { Text("This removes every local upload log. The actual commits on GitHub are not affected.", color = GitTextSecondary) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearAllConfirm = false
+                        viewModel.clearAllUploadLogs()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Clear All") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllConfirm = false }) {
+                    Text("Cancel", color = GitTextSecondary)
+                }
+            }
+        )
+    }
 }
 
 @Composable
-fun UploadLogCard(log: UploadLogEntity) {
+fun UploadLogCard(log: UploadLogEntity, onDelete: () -> Unit = {}) {
     val context = LocalContext.current
     val dateStr = remember(log.timestamp) {
         val sdf = SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.getDefault())
@@ -184,6 +227,20 @@ fun UploadLogCard(log: UploadLogEntity) {
                     ) {
                         Icon(imageVector = Icons.Outlined.ContentCopy, contentDescription = "Copy Link", tint = GitAccentCyan, modifier = Modifier.size(16.dp))
                     }
+                }
+
+                IconButton(
+                    onClick = onDelete,
+                    modifier = Modifier
+                        .size(28.dp)
+                        .testTag("delete_log_btn_${log.id}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete Log",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
             }
         }

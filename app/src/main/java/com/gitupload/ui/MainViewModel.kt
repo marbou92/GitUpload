@@ -229,6 +229,40 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Signs out of every stored GitHub account and wipes their tokens. */
+    fun signOutAllAccounts() {
+        viewModelScope.launch {
+            repository.deleteAllAccounts()
+            // Clear any in-memory target repo / staged state that referenced
+            // the now-removed account so the UI doesn't try to commit against
+            // a stale selection.
+            _targetRepo.value = null
+            _availableBranches.value = listOf("main", "master")
+            loadUserRepos()
+        }
+    }
+
+    /** Deletes a single upload-history entry. */
+    fun deleteUploadLog(id: Long) {
+        viewModelScope.launch {
+            repository.deleteUploadLog(id)
+        }
+    }
+
+    /** Clears every upload-history entry. */
+    fun clearAllUploadLogs() {
+        viewModelScope.launch {
+            repository.clearAllUploadLogs()
+        }
+    }
+
+    /** Clears the offline file-tree cache for all repositories. */
+    fun clearFileTreeCache() {
+        viewModelScope.launch {
+            repository.clearFileTreeCache()
+        }
+    }
+
     fun setTargetRepo(repo: GitHubRepository) {
         _targetRepo.value = repo
         _targetBranch.value = repo.defaultBranch
@@ -260,6 +294,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /**
+     * Hard cap on the number of files that can be staged at once. Each
+     * staged file holds its full bytes in memory until the upload completes,
+     * so an unbounded list will OOM on large directory trees. 500 files * an
+     * average ~50 KB source file is ~25 MB of resident memory, well within
+     * budget on API 24+ devices.
+     */
+    private val maxStagedFiles = 500
+
     // Staging Actions
     fun scanFolderUri(uri: Uri) {
         viewModelScope.launch {
@@ -274,9 +317,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             )
 
-            // Merge with current staged files avoid duplicates
+            // Merge with current staged files, avoiding duplicates and
+            // respecting the total staged-files cap.
             val current = _stagedFiles.value.toMutableList()
             for (f in scanned) {
+                if (current.size >= maxStagedFiles) break
                 if (!current.any { it.relativePath == f.relativePath }) {
                     current.add(f)
                 }
@@ -297,6 +342,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val scanned = FolderScanner.scanMultipleFiles(getApplication(), uris)
             val current = _stagedFiles.value.toMutableList()
             for (f in scanned) {
+                if (current.size >= maxStagedFiles) break
                 if (!current.any { it.relativePath == f.relativePath }) {
                     current.add(f)
                 }
@@ -490,7 +536,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _decodedFileContent.value = "Content preview unavailable for binary or large files."
                 }
             } else {
-                _decodedFileContent.value = "Failed to load file contents."
+                // Surface the repository's actual failure reason (HTTP code,
+                // parse error, network exception, etc.) instead of a generic
+                // string, so the user knows whether it was a 404, a rate
+                // limit, or a connectivity issue.
+                val reason = res.exceptionOrNull()?.message ?: "Unknown error"
+                _decodedFileContent.value = "Failed to load file contents: $reason"
             }
             _isFileContentLoading.value = false
         }
