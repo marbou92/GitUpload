@@ -12,6 +12,7 @@ import com.gitupload.data.db.CachedFileTreeEntity
 import com.gitupload.data.db.UploadLogDao
 import com.gitupload.data.db.UploadLogEntity
 import com.gitupload.data.models.*
+import com.gitupload.util.TokenCrypto
 
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.Types
@@ -48,8 +49,17 @@ class GitUploadRepository(
             val response = apiService.getAuthenticatedUser(formattedToken)
             if (response.isSuccessful && response.body() != null) {
                 val user = response.body()!!
+                // Encrypt the token at rest with the Android Keystore before
+                // persisting it. The stored value (and the Room primary key)
+                // is the Base64 ciphertext; it is decrypted lazily via
+                // [activeBearerToken] whenever a real Authorization header is
+                // needed for a GitHub API call.
+                val encryptedToken = TokenCrypto.encrypt(formattedToken)
+                    ?: return@withContext Result.failure(
+                        Exception("Failed to securely encrypt token (Android Keystore unavailable).")
+                    )
                 val entity = AccountEntity(
-                    token = formattedToken,
+                    token = encryptedToken,
                     username = user.login,
                     displayName = user.name ?: user.login,
                     avatarUrl = user.avatarUrl,
@@ -57,7 +67,7 @@ class GitUploadRepository(
                     isSelected = true
                 )
                 accountDao.insertAccount(entity)
-                accountDao.setSelectedAccount(formattedToken)
+                accountDao.setSelectedAccount(encryptedToken)
                 Result.success(entity)
             } else {
                 Result.failure(Exception("Invalid Token or User fetch failed: ${response.code()} ${response.message()}"))
@@ -65,6 +75,17 @@ class GitUploadRepository(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /**
+     * Returns the decrypted Bearer token for the given (possibly null) account,
+     * or null if there is no account or the stored ciphertext could not be
+     * decrypted (e.g. legacy plaintext token from an older install, or a
+     * Keystore key rotation). Callers should treat null as "not signed in".
+     */
+    private fun activeBearerToken(account: AccountEntity?): String? {
+        if (account == null) return null
+        return TokenCrypto.decrypt(account.token)
     }
 
     suspend fun switchAccount(token: String) = withContext(Dispatchers.IO) {
@@ -78,15 +99,18 @@ class GitUploadRepository(
     suspend fun fetchUserRepos(): Result<List<GitHubRepository>> = withContext(Dispatchers.IO) {
         try {
             val activeAccount = accountDao.getSelectedAccount()
-            if (activeAccount != null) {
-                val response = apiService.getUserRepos(activeAccount.token)
+            val bearer = activeBearerToken(activeAccount)
+            if (bearer != null) {
+                val response = apiService.getUserRepos(bearer)
                 if (response.isSuccessful && response.body() != null) {
                     Result.success(response.body()!!)
                 } else {
                     Result.failure(Exception("Failed to fetch repos: ${response.code()}"))
                 }
             } else {
-                // Return Demo / Public Sample Repositories for immediate exploration
+                // No decryptable token on file (signed out, legacy plaintext,
+                // or Keystore unavailable). Fall back to demo repositories so
+                // the app remains explorable.
                 Result.success(getDemoRepositories())
             }
         } catch (e: Exception) {
@@ -110,15 +134,18 @@ class GitUploadRepository(
     suspend fun fetchRepoBranches(owner: String, repo: String): Result<List<GitHubBranch>> = withContext(Dispatchers.IO) {
         try {
             val account = accountDao.getSelectedAccount()
-            val response = apiService.getRepoBranches(owner, repo, account?.token)
+            val response = apiService.getRepoBranches(owner, repo, activeBearerToken(account))
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
-                // Default fallback branch
-                Result.success(listOf(GitHubBranch("main", BranchCommit("head_sha", ""))))
+                // Return an empty list instead of fabricating a bogus branch
+                // with a fake SHA. The caller falls back to ["main"] for the
+                // branch picker, and the real HEAD SHA is resolved at upload
+                // time via the Git ref endpoint.
+                Result.success(emptyList())
             }
         } catch (e: Exception) {
-            Result.success(listOf(GitHubBranch("main", BranchCommit("head_sha", ""))))
+            Result.success(emptyList())
         }
     }
 
@@ -134,7 +161,7 @@ class GitUploadRepository(
 
         try {
             val account = accountDao.getSelectedAccount()
-            val response = apiService.getRepoContents(owner, repo, path, ref, account?.token)
+            val response = apiService.getRepoContents(owner, repo, path, ref, activeBearerToken(account))
             if (response.isSuccessful && response.body() != null) {
                 val rawBody = response.body()!!
                 val items = parseContentsResponse(rawBody)
@@ -205,10 +232,11 @@ class GitUploadRepository(
     ): Result<GitHubContentItem> = withContext(Dispatchers.IO) {
         try {
             val account = accountDao.getSelectedAccount()
-            if (owner == "demo-developer" || account == null && (owner.contains("demo") || repo.contains("starter") || repo.contains("portfolio"))) {
+            val bearer = activeBearerToken(account)
+            if (owner == "demo-developer" || bearer == null && (owner.contains("demo") || repo.contains("starter") || repo.contains("portfolio"))) {
                 return@withContext Result.success(getFallbackFileContent(path))
             }
-            val response = apiService.getRepoContents(owner, repo, path, ref, account?.token)
+            val response = apiService.getRepoContents(owner, repo, path, ref, bearer)
             if (response.isSuccessful && response.body() != null) {
                 val rawBody = response.body()!!
                 val parsedItems = parseContentsResponse(rawBody)
@@ -232,7 +260,7 @@ class GitUploadRepository(
     ): Result<List<GitHubCommitItem>> = withContext(Dispatchers.IO) {
         try {
             val account = accountDao.getSelectedAccount()
-            val response = apiService.getRepoCommits(owner, repo, ref, 20, account?.token)
+            val response = apiService.getRepoCommits(owner, repo, ref, 20, activeBearerToken(account))
             if (response.isSuccessful && response.body() != null) {
                 Result.success(response.body()!!)
             } else {
@@ -260,11 +288,10 @@ class GitUploadRepository(
         }
 
         val activeAccount = accountDao.getSelectedAccount()
-        if (activeAccount == null) {
+        val token = activeBearerToken(activeAccount)
+        if (token == null) {
             return@withContext Result.failure(Exception("GitHub Personal Access Token required for commits. Please add your PAT token in Accounts tab."))
         }
-
-        val token = activeAccount.token
         val repoFullName = "$owner/$repo"
         val totalBytes = selectedFiles.sumOf { it.sizeBytes }
 

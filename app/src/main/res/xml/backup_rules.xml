@@ -1,13 +1,20 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+   Backup rules for GitUpload.
+
+   The local Room database (`gitupload_database`) stores GitHub Personal
+   Access Tokens. Although those tokens are now encrypted at rest with a
+   device-bound Android Keystore key (so a restored copy would be
+   undecryptable on another device), there is no value in shipping the
+   ciphertext off-device either. We therefore exclude the database and its
+   SQLite companion files (-wal / -shm) from Auto Backup entirely.
+
    See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
+   Note: This file is ignored for devices older than API 31.
    See https://developer.android.com/about/versions/12/backup-restore
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude domain="database" path="gitupload_database" />
+    <exclude domain="database" path="gitupload_database-wal" />
+    <exclude domain="database" path="gitupload_database-shm" />
 </full-backup-content>

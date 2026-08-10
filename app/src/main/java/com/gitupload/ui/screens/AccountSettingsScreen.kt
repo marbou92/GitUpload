@@ -840,9 +840,9 @@ fun SubSettingsPrivacyContent(onWipeTokens: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(imageVector = Icons.Default.Shield, contentDescription = null, tint = GitPrimaryGreen, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(10.dp))
-                    Text("Local Room Database Encryption Active", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = GitTextPrimary)
+                    Text("Tokens Encrypted with Android Keystore", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = GitTextPrimary)
                 }
-                Text("All GitHub Personal Access Tokens and OAuth Bearer Tokens are encrypted in local Room SQLite storage.", style = MaterialTheme.typography.bodySmall, color = GitTextSecondary)
+                Text("All GitHub Personal Access Tokens and OAuth Bearer Tokens are encrypted at rest with AES-GCM using a device-bound key stored in the Android Keystore. The Keystore key never leaves the device, so stored tokens cannot be decrypted elsewhere.", style = MaterialTheme.typography.bodySmall, color = GitTextSecondary)
             }
         }
 

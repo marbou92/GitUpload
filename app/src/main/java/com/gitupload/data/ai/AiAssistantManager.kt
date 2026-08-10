@@ -431,7 +431,10 @@ object AiAssistantManager {
 
     private fun callGeminiApi(apiKey: String, model: String, prompt: String): String {
         val cleanModel = model.removePrefix("google/")
-        val url = "https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:generateContent?key=$apiKey"
+        // Pass the API key via the x-goog-api-key header rather than as a
+        // URL query parameter so it never leaks into logs, proxies or
+        // crash-report URL captures.
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/$cleanModel:generateContent"
         val payload = """
             {
               "contents": [{"parts": [{"text": ${escapeJson(prompt)}}]}]
@@ -440,6 +443,7 @@ object AiAssistantManager {
 
         val request = Request.Builder()
             .url(url)
+            .header("x-goog-api-key", apiKey)
             .post(payload.toRequestBody("application/json".toMediaType()))
             .build()
 

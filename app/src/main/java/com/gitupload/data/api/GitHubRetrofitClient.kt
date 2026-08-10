@@ -1,5 +1,6 @@
 package com.gitupload.data.api
 
+import com.gitupload.BuildConfig
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
@@ -19,9 +20,18 @@ object GitHubRetrofitClient {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-        .addInterceptor(HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.HEADERS
-        })
+        .apply {
+            // Logging is debug-only. Even in debug we redact the
+            // Authorization header so the user's GitHub PAT never ends up
+            // in logcat, bug reports or crash dumps.
+            if (BuildConfig.DEBUG) {
+                addInterceptor(HttpLoggingInterceptor().apply {
+                    level = HttpLoggingInterceptor.Level.BASIC
+                    redactHeader("Authorization")
+                    redactHeader("x-goog-api-key")
+                })
+            }
+        }
         .build()
 
     val apiService: GitHubApiService by lazy {

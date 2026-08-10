@@ -23,6 +23,7 @@ interface GitHubApiService {
 
     @GET("users/{username}/repos")
     suspend fun getPublicReposForUser(
+        @Path("username") username: String,
         @Query("sort") sort: String = "updated",
         @Query("per_page") perPage: Int = 100
     ): Response<List<GitHubRepository>>

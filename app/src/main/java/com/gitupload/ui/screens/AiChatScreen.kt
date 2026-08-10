@@ -117,7 +117,7 @@ fun AiChatScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Default.AutoAwesome,
-                        contentDescription = "Claude Assistant",
+                        contentDescription = "AI Assistant",
                         tint = ClaudeOrange,
                         modifier = Modifier.size(22.dp)
                     )
@@ -128,7 +128,7 @@ fun AiChatScreen(
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "Claude AI",
+                            text = aiConfig.provider.displayName,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             color = GitTextPrimary
@@ -139,7 +139,7 @@ fun AiChatScreen(
                             shape = RoundedCornerShape(6.dp)
                         ) {
                             Text(
-                                text = "models.dev",
+                                text = "AI",
                                 style = MaterialTheme.typography.labelSmall,
                                 fontSize = 10.sp,
                                 color = ClaudeOrange,
@@ -260,7 +260,7 @@ fun AiChatScreen(
                 OutlinedTextField(
                     value = inputText,
                     onValueChange = { inputText = it },
-                    placeholder = { Text("Ask Claude (${aiConfig.selectedModel})...", color = GitTextSecondary, fontSize = 14.sp) },
+                    placeholder = { Text("Ask ${aiConfig.provider.displayName} (${aiConfig.selectedModel})...", color = GitTextSecondary, fontSize = 14.sp) },
                     singleLine = false,
                     maxLines = 4,
                     colors = OutlinedTextFieldDefaults.colors(

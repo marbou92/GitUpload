@@ -248,9 +248,13 @@ git push origin v1.0.0
 
 ## 🔐 Security & privacy
 
-- GitHub PATs and AI keys are stored **on-device** in an encrypted Room
-  database; they are never transmitted anywhere except directly to GitHub
-  / your chosen AI provider.
+- GitHub PATs are **encrypted at rest** with AES-GCM using a device-bound
+  key held in the Android Keystore, then persisted in the local Room
+  database. The Keystore key never leaves the device, so stored tokens
+  cannot be decrypted on another device. The token database is also
+  excluded from Auto Backup / device transfer. AI provider keys live in
+  memory only. Secrets are never transmitted anywhere except directly to
+  GitHub / your chosen AI provider.
 - No telemetry, no analytics, no third-party trackers.
 - `.env`, keystores and `google-services.json` are gitignored.
 
