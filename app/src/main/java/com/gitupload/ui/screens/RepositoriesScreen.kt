@@ -792,6 +792,7 @@ fun ContentItemRow(
     }
 }
 
+@Composable
 private fun getLanguageColor(lang: String): Color {
     return when (lang.lowercase()) {
         "kotlin" -> Color(0xFFA97BFF)
